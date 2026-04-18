@@ -9,6 +9,7 @@ from data import load_gap_df, load_severity_df, build_name_map, enrich_year
 from scoring import compute_gap_scores, format_rankings_table, fmt_usd
 from charts import world_map, rankings_bar, severity_scatter, neglect_trends
 from chat import render_chat
+from bias import render_bias_analysis
 
 st.set_page_config(
     page_title="Geo-Insight: Overlooked Crises",
@@ -88,86 +89,100 @@ def main():
     full_scored = compute_gap_scores(gap_df, use_neglect)
     year_df = enrich_year(full_scored, sev_df, name_map, year, min_sev)
 
-    col_main, col_chat = st.columns([3, 1], gap="large")
+    # ── Tabs ──────────────────────────────────────────────────────────────────
+    tab_dashboard, tab_bias = st.tabs(["📊  Crisis Dashboard", "🔍  Bias Analysis"])
 
-    with col_main:
-        # ── KPIs ──────────────────────────────────────────────────────────────
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Countries / crises", len(year_df))
-        c2.metric("Total funding gap", fmt_usd(year_df["Funding_Gap"].sum(), 1))
-        c3.metric("Avg. coverage", f"{year_df['Pct_Funded'].mean():.0f}%")
-        c4.metric("< 20 % funded", int((year_df["Pct_Funded"] < 20).sum()))
-        c5.metric("Avg. severity", f"{year_df['INFORM Severity Index'].mean():.1f} / 5")
+    # ═══════════════════════════════════════════════════════════════════════════
+    with tab_dashboard:
+        col_main, col_chat = st.columns([3, 1], gap="large")
 
-        st.divider()
+        with col_main:
+            # ── KPIs ──────────────────────────────────────────────────────────
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Countries / crises", len(year_df))
+            c2.metric("Total funding gap", fmt_usd(year_df["Funding_Gap"].sum(), 1))
+            c3.metric("Avg. coverage", f"{year_df['Pct_Funded'].mean():.0f}%")
+            c4.metric("< 20 % funded", int((year_df["Pct_Funded"] < 20).sum()))
+            c5.metric("Avg. severity", f"{year_df['INFORM Severity Index'].mean():.1f} / 5")
 
-        # ── World map ──────────────────────────────────────────────────────────
-        st.subheader("World Map — Crisis Gap Score")
-        st.plotly_chart(world_map(year_df), use_container_width=True)
-
-        st.divider()
-
-        # ── Rankings ───────────────────────────────────────────────────────────
-        st.subheader(f"Top {top_n} Most Overlooked Crises — {year}")
-
-        top = year_df.nlargest(top_n, "gap_score").copy()
-        top["label"] = top.apply(
-            lambda r: r["country_name"]
-            + (f" · {str(r['CRISIS'])[:22]}" if pd.notna(r.get("CRISIS")) else ""),
-            axis=1,
-        )
-
-        col_bar, col_tbl = st.columns([5, 6])
-        with col_bar:
-            st.plotly_chart(rankings_bar(top, top_n), use_container_width=True)
-        with col_tbl:
-            st.dataframe(
-                format_rankings_table(top),
-                use_container_width=True,
-                height=max(380, top_n * 32),
-            )
-
-        st.divider()
-
-        # ── Scatter ────────────────────────────────────────────────────────────
-        st.subheader("Severity vs. Coverage  (bubble size = requirements)")
-        st.plotly_chart(severity_scatter(year_df), use_container_width=True)
-
-        # ── Neglect trends ─────────────────────────────────────────────────────
-        if use_neglect:
             st.divider()
-            st.subheader("Structural Neglect: Multi-Year Coverage Trends")
-            st.caption(
-                "Countries persistently below 20 % coverage signal **chronic** under-resourcing, "
-                "not just a point-in-time gap."
+
+            # ── World map ──────────────────────────────────────────────────────
+            st.subheader("World Map — Crisis Gap Score")
+            st.plotly_chart(world_map(year_df), use_container_width=True)
+
+            st.divider()
+
+            # ── Rankings ───────────────────────────────────────────────────────
+            st.subheader(f"Top {top_n} Most Overlooked Crises — {year}")
+
+            top = year_df.nlargest(top_n, "gap_score").copy()
+            top["label"] = top.apply(
+                lambda r: r["country_name"]
+                + (f" · {str(r['CRISIS'])[:22]}" if pd.notna(r.get("CRISIS")) else ""),
+                axis=1,
             )
-            top_iso = year_df.nlargest(10, "gap_score")["Country_ISO3"].tolist()
-            trend_df = full_scored[full_scored["Country_ISO3"].isin(top_iso)].copy()
-            trend_df["label"] = trend_df["Country_ISO3"].map(name_map).fillna(trend_df["Country_ISO3"])
-            st.plotly_chart(neglect_trends(trend_df), use_container_width=True)
 
-        # ── Download ───────────────────────────────────────────────────────────
-        st.divider()
-        dl_cols = [
-            "Country_ISO3", "country_name", "Year", "CRISIS", "TYPE OF CRISIS",
-            "INFORM Severity Index", "INFORM Severity category",
-            "revisedRequirements", "Total_Actual_Funding", "Funding_Gap",
-            "Pct_Funded", "gap_score",
-        ]
-        dl_df = year_df[[c for c in dl_cols if c in year_df.columns]]
-        st.download_button(
-            "⬇️  Download ranked crisis data (CSV)",
-            data=dl_df.to_csv(index=False),
-            file_name=f"crisis_gap_{year}.csv",
-            mime="text/csv",
+            col_bar, col_tbl = st.columns([5, 6])
+            with col_bar:
+                st.plotly_chart(rankings_bar(top, top_n), use_container_width=True)
+            with col_tbl:
+                st.dataframe(
+                    format_rankings_table(top),
+                    use_container_width=True,
+                    height=max(380, top_n * 32),
+                )
+
+            st.divider()
+
+            # ── Scatter ────────────────────────────────────────────────────────
+            st.subheader("Severity vs. Coverage  (bubble size = requirements)")
+            st.plotly_chart(severity_scatter(year_df), use_container_width=True)
+
+            # ── Neglect trends ─────────────────────────────────────────────────
+            if use_neglect:
+                st.divider()
+                st.subheader("Structural Neglect: Multi-Year Coverage Trends")
+                st.caption(
+                    "Countries persistently below 20 % coverage signal **chronic** under-resourcing, "
+                    "not just a point-in-time gap."
+                )
+                top_iso = year_df.nlargest(10, "gap_score")["Country_ISO3"].tolist()
+                trend_df = full_scored[full_scored["Country_ISO3"].isin(top_iso)].copy()
+                trend_df["label"] = trend_df["Country_ISO3"].map(name_map).fillna(trend_df["Country_ISO3"])
+                st.plotly_chart(neglect_trends(trend_df), use_container_width=True)
+
+            # ── Download ───────────────────────────────────────────────────────
+            st.divider()
+            dl_cols = [
+                "Country_ISO3", "country_name", "Year", "CRISIS", "TYPE OF CRISIS",
+                "INFORM Severity Index", "INFORM Severity category",
+                "revisedRequirements", "Total_Actual_Funding", "Funding_Gap",
+                "Pct_Funded", "gap_score",
+            ]
+            dl_df = year_df[[c for c in dl_cols if c in year_df.columns]]
+            st.download_button(
+                "⬇️  Download ranked crisis data (CSV)",
+                data=dl_df.to_csv(index=False),
+                file_name=f"crisis_gap_{year}.csv",
+                mime="text/csv",
+            )
+
+            # ── Methodology ────────────────────────────────────────────────────
+            with st.expander("📐  Methodology & Limitations"):
+                st.markdown(METHODOLOGY)
+
+        with col_chat:
+            render_chat(year_df, year)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    with tab_bias:
+        st.subheader("🔍  Does the UN Discriminate? A Systematic Bias Analysis")
+        st.caption(
+            "All charts use pooled-fund (CERF + CBPF) data across **2020–2025** — independent of the year filter. "
+            "Coverage is pooled-fund only and will appear lower than total-FTS figures."
         )
-
-        # ── Methodology ────────────────────────────────────────────────────────
-        with st.expander("📐  Methodology & Limitations"):
-            st.markdown(METHODOLOGY)
-
-    with col_chat:
-        render_chat(year_df, year)
+        render_bias_analysis(full_scored, sev_df, name_map)
 
 
 if __name__ == "__main__":
