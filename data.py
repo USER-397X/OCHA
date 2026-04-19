@@ -44,6 +44,28 @@ def load_hno_pin(year: int) -> pd.DataFrame:
 
 
 @st.cache_data
+def load_fts_funding() -> pd.DataFrame:
+    """FTS total requirements vs funding, aggregated to country-year.
+
+    Uses fts_requirements_funding_global.csv which includes all funding
+    sources (bilateral, pooled, etc.) — not just CERF/CBPF.
+    """
+    df = pd.read_csv(DATA_DIR / "fts_requirements_funding_global.csv")
+    df.columns = df.columns.str.strip()
+    df["requirements"] = pd.to_numeric(df["requirements"], errors="coerce")
+    df["funding"] = pd.to_numeric(df["funding"], errors="coerce")
+    # Aggregate multiple plans per country-year
+    agg = (
+        df.groupby(["countryCode", "year"], as_index=False)
+        .agg(requirements=("requirements", "sum"), funding=("funding", "sum"))
+    )
+    agg = agg[agg["requirements"] > 0].copy()
+    agg["fts_pct_funded"] = (agg["funding"] / agg["requirements"] * 100).clip(0, 100)
+    agg["fts_gap_pct"] = 100 - agg["fts_pct_funded"]
+    return agg.rename(columns={"countryCode": "Country_ISO3", "year": "Year"})
+
+
+@st.cache_data
 def build_name_map(sev_df: pd.DataFrame) -> dict:
     return (
         sev_df[["ISO3", "COUNTRY"]]

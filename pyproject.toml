@@ -20,4 +20,5 @@ dependencies = [
     "nbconvert>=7.17.1",
     "gdeltdoc>=1.12.0",
     "google-cloud-bigquery>=3.41.0",
+    "db-dtypes>=1.4.4",
 ]

@@ -43,9 +43,10 @@ def _process_raw(raw: pd.DataFrame) -> pd.DataFrame:
     return df[["date", "articles", "frac"]].sort_values("date").reset_index(drop=True)
 
 
-def _fetch_gdelt(keyword: str, start_date: str, end_date: str) -> pd.DataFrame | None:
-    """Call GDELT API with one retry on rate-limit."""
+def _fetch_gdelt(keyword: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Call GDELT API with one retry on rate-limit. Raises on failure."""
     gd = GdeltDoc()
+    last_exc: Exception | None = None
     for attempt in range(2):
         try:
             f = Filters(keyword=keyword, language="English",
@@ -53,15 +54,16 @@ def _fetch_gdelt(keyword: str, start_date: str, end_date: str) -> pd.DataFrame |
             raw = gd.timeline_search("timelinevolraw", f)
             if raw is not None and not raw.empty:
                 return _process_raw(raw)
-        except RateLimitError:
+            raise RuntimeError(f"GDELT returned empty result for keyword={keyword!r} ({start_date} – {end_date})")
+        except RateLimitError as exc:
+            last_exc = exc
             if attempt == 0:
                 time.sleep(_RETRY_SLEEP)
             continue
-        except Exception:
+        except Exception as exc:
+            last_exc = exc
             break
-        if attempt == 0:
-            time.sleep(_INTER_CALL_SLEEP)
-    return None
+    raise RuntimeError(f"GDELT fetch failed for {keyword!r}") from last_exc
 
 
 def is_stale(iso3: str) -> bool:
@@ -92,24 +94,64 @@ def _gap_fill_and_save(iso3: str, country_name: str) -> None:
 
 
 @st.cache_data(ttl=3600)
-def get_media_attention(iso3: str, country_name: str, months: int = 12) -> pd.DataFrame | None:
-    """Load cached media attention data for a country (last `months` months).
+def get_annual_media_map(year: int) -> pd.DataFrame:
+    """Return a DataFrame with Country_ISO3 and media_frac_pct (annual mean daily frac × 100).
 
-    Does NOT auto-fetch stale data — call _gap_fill_and_save() first if needed,
-    then clear this cache with get_media_attention.clear().
+    Only includes countries that have cached CSVs with data for *year*.
     """
+    rows = []
+    for csv_path in MEDIA_DIR.glob("*.csv"):
+        iso3 = csv_path.stem
+        df = _load_csv(iso3)
+        if df is None or df.empty:
+            continue
+        year_df = df[df["date"].dt.year == year]
+        if year_df.empty:
+            continue
+        rows.append({
+            "Country_ISO3": iso3,
+            "media_frac_pct": year_df["frac"].mean() * 100,
+        })
+    if not rows:
+        return pd.DataFrame(columns=["Country_ISO3", "media_frac_pct"])
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=3600)
+def get_media_attention(iso3: str, country_name: str, year: int = 2026) -> pd.DataFrame:
+    """Load cached media attention data for a country, sliced to *year*.
+
+    For the current year: last 12 months of data.
+    For past years: Jan 1 – Dec 31 of that year.
+    Does NOT auto-fetch stale data — call _gap_fill_and_save() first if needed.
+    Raises RuntimeError if no data is available.
+    """
+    current_year = date.today().year
     df = _load_csv(iso3)
     if df is None or df.empty:
-        # First-ever load: fetch full history
-        start = (date.today() - timedelta(days=months * 31)).isoformat()
-        end = date.today().isoformat()
+        if year == current_year:
+            start = (date.today() - timedelta(days=365)).isoformat()
+            end   = date.today().isoformat()
+        else:
+            start = f"{year}-01-01"
+            end   = f"{year}-12-31"
         df = _fetch_gdelt(country_name, start, end)
-        if df is None or df.empty:
-            return None
         _save_csv(iso3, df)
 
-    cutoff = pd.Timestamp(date.today() - timedelta(days=months * 31), tz="UTC")
-    df = df[df["date"] >= cutoff].copy()
+    if year == current_year:
+        cutoff = pd.Timestamp(date.today() - timedelta(days=365), tz="UTC")
+        df = df[df["date"] >= cutoff].copy()
+    else:
+        df = df[
+            (df["date"] >= pd.Timestamp(f"{year}-01-01", tz="UTC")) &
+            (df["date"] <= pd.Timestamp(f"{year}-12-31 23:59:59", tz="UTC"))
+        ].copy()
+
+    if df.empty:
+        raise RuntimeError(
+            f"No GDELT data for {country_name} ({iso3}) in {year}. "
+            "Try clicking refresh or switching to a different year."
+        )
     df["rolling_7d"] = df["frac"].rolling(7, min_periods=1).mean() * 100
-    df["frac_pct"] = df["frac"] * 100
+    df["frac_pct"]   = df["frac"] * 100
     return df.reset_index(drop=True)

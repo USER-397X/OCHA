@@ -1,3 +1,6 @@
+## Backlog (quick wins)
+- Rewrite README
+
 ## In progress
 - Media Attention tab: world map + click-to-country time series (GDELT), metric dropdown
 - Put BigQuery everywhere
