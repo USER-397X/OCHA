@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-DATA_DIR = Path.home() / "Downloads" / "data-20260418T155116Z-3-001" / "data"
+DATA_DIR = Path(__file__).parent / "data"
 
 
 @st.cache_data

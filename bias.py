@@ -12,7 +12,9 @@ import streamlit as st
 
 from scoring import fmt_usd
 
-DATA = Path.home() / "Downloads" / "data-20260418T155116Z-3-001" / "data"
+PROJECT_ROOT = Path(__file__).parent
+
+DATA = PROJECT_ROOT / "data"
 
 REGION_COLORS = {
     "Africa": "#e74c3c",

@@ -7,9 +7,10 @@ import pandas as pd
 
 from data import load_gap_df, load_severity_df, build_name_map, enrich_year
 from scoring import compute_gap_scores, format_rankings_table, fmt_usd
-from charts import world_map, rankings_bar, severity_scatter, neglect_trends
+from charts import world_map, rankings_bar, severity_scatter, neglect_trends, media_attention_map, media_timeseries
 from chat import render_chat
 from bias import render_bias_analysis
+from media import get_media_attention, is_stale, _gap_fill_and_save
 
 st.set_page_config(
     page_title="Geo-Insight: Overlooked Crises",
@@ -84,13 +85,20 @@ def main():
         st.markdown("**Gap Score**  \n`= (1−coverage) × severity × log(scale)`  \n\nScaled 0–100.")
         st.markdown("---")
         st.markdown("Data: OCHA FTS · CERF · CBPF · INFORM")
+        with st.expander("🎬 Demo controls"):
+            force_stale = st.checkbox(
+                "Force stale data (show refresh button)",
+                help="Makes all media CSVs appear outdated so the live refresh can be demonstrated.",
+            )
 
     # ── Compute ───────────────────────────────────────────────────────────────
     full_scored = compute_gap_scores(gap_df, use_neglect)
     year_df = enrich_year(full_scored, sev_df, name_map, year, min_sev)
 
     # ── Tabs ──────────────────────────────────────────────────────────────────
-    tab_dashboard, tab_bias = st.tabs(["📊  Crisis Dashboard", "🔍  Bias Analysis"])
+    tab_dashboard, tab_bias, tab_media = st.tabs([
+        "📊  Crisis Dashboard", "🔍  Bias Analysis", "📰  Media Attention"
+    ])
 
     # ═══════════════════════════════════════════════════════════════════════════
     with tab_dashboard:
@@ -174,6 +182,45 @@ def main():
 
         with col_chat:
             render_chat(year_df, year)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    with tab_media:
+        st.subheader("📰 Media Attention by Country")
+        st.caption(
+            "Crisis countries coloured by gap score. "
+            "Click a country to explore its media attention over time."
+        )
+
+        st.selectbox("Metric", ["Media Attention (article mentions)"], key="media_metric")
+
+        event = st.plotly_chart(
+            media_attention_map(year_df),
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode=["points"],
+            key="media_map",
+        )
+
+        points = (event.selection or {}).get("points", []) if event else []
+        if points:
+            iso3 = points[0]["customdata"][0]
+            country_name = points[0]["customdata"][1]
+            st.subheader(f"{country_name} — Media Attention (last 12 months)")
+
+            if force_stale or is_stale(iso3):
+                if st.button("🔄 New data available — click to refresh", type="primary"):
+                    with st.spinner("Fetching latest data from GDELT…"):
+                        _gap_fill_and_save(iso3, country_name)
+                    get_media_attention.clear()
+                    st.rerun()
+
+            df_media = get_media_attention(iso3, country_name)
+            if df_media is None or df_media.empty:
+                st.warning(f"No media attention data available for {country_name}.")
+            else:
+                st.plotly_chart(media_timeseries(df_media, country_name), use_container_width=True)
+        else:
+            st.info("Click a country on the map to view its media attention over time.")
 
     # ═══════════════════════════════════════════════════════════════════════════
     with tab_bias:

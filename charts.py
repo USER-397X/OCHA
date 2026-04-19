@@ -116,6 +116,78 @@ def severity_scatter(year_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def media_attention_map(year_df: pd.DataFrame) -> go.Figure:
+    df = year_df.copy()
+    df["_hover"] = df.apply(
+        lambda r: (
+            f"<b>{r['country_name']}</b><br>"
+            f"{r['CRISIS'] if pd.notna(r.get('CRISIS')) else ''}<br>"
+            f"Severity: {r['INFORM Severity Index']:.1f}"
+            f" ({r['INFORM Severity category'] if pd.notna(r.get('INFORM Severity category')) else ''})<br>"
+            f"<i>Click to explore media attention</i>"
+        ),
+        axis=1,
+    )
+    fig = px.choropleth(
+        df,
+        locations="Country_ISO3",
+        color="gap_score",
+        custom_data=["Country_ISO3", "country_name", "_hover"],
+        color_continuous_scale="YlOrRd",
+        range_color=[0, 100],
+        labels={"gap_score": SCORE_LABEL},
+    )
+    fig.update_traces(hovertemplate="%{customdata[2]}<extra></extra>")
+    fig.update_layout(
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="#aaa",
+            showland=True, landcolor="#f2f2f2",
+            showocean=True, oceancolor="#dceef7",
+            showlakes=False,
+            projection_type="natural earth",
+        ),
+        height=500,
+        margin=dict(l=0, r=0, t=10, b=0),
+        coloraxis_colorbar=dict(
+            title="Gap Score",
+            tickvals=[0, 25, 50, 75, 100],
+            ticktext=["0", "25", "50 (Med)", "75", "100 (High)"],
+            thickness=14,
+        ),
+    )
+    return fig
+
+
+def media_timeseries(df: pd.DataFrame, country_name: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["frac_pct"],
+        mode="lines",
+        line=dict(color="#4a90d9", width=1),
+        opacity=0.35,
+        name="Daily",
+        hovertemplate="%{x|%d %b %Y}: %{y:.4f}%<extra></extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["rolling_7d"],
+        mode="lines",
+        line=dict(color="#1a5fa8", width=2),
+        name="7-day avg",
+        hovertemplate="%{x|%d %b %Y}: %{y:.4f}%<extra></extra>",
+    ))
+    fig.update_layout(
+        height=380,
+        margin=dict(l=0, r=0, t=10, b=0),
+        xaxis_title="Date",
+        yaxis_title="% of English news coverage",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+    )
+    return fig
+
+
 def neglect_trends(trend_df: pd.DataFrame) -> go.Figure:
     fig = px.line(
         trend_df.sort_values("Year"),
