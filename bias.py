@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -11,10 +10,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from scoring import fmt_usd
-
-PROJECT_ROOT = Path(__file__).parent
-
-DATA = PROJECT_ROOT / "data"
+from data import DATA_DIR as DATA
 
 REGION_COLORS = {
     "Africa": "#e74c3c",

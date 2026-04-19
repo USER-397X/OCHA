@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path.home() / "Downloads" / "data-20260418T155116Z-3-001" / "data"
 
 
 @st.cache_data
@@ -74,6 +74,74 @@ def build_name_map(sev_df: pd.DataFrame) -> dict:
         .set_index("ISO3")["COUNTRY"]
         .to_dict()
     )
+
+
+@st.cache_data
+def load_hno_core() -> pd.DataFrame:
+    """Return iso3/year dataframe with need_rate, coverage_rate, usd_per_in_need, mismatch."""
+    YEARS = [2024, 2025, 2026]
+    HNO_COLS = ["Country ISO3", "Population", "In Need", "Targeted", "Cluster", "Category",
+                "Admin 1 PCode"]
+
+    frames = []
+    for y in YEARS:
+        path = DATA_DIR / f"hpc_hno_{y}.csv"
+        if not path.exists():
+            continue
+        raw = pd.read_csv(path, header=0, skiprows=[1], low_memory=False)
+        raw.columns = raw.columns.str.strip()
+        avail = [c for c in HNO_COLS if c in raw.columns]
+        raw = raw[avail].copy()
+        mask = (
+            raw["Cluster"].str.upper().str.strip() == "ALL"
+        ) & (raw["Category"].fillna("").astype(str).str.strip() == "")
+        if "Admin 1 PCode" in raw.columns:
+            mask = mask & raw["Admin 1 PCode"].isna()
+        sub = raw[mask][["Country ISO3", "Population", "In Need", "Targeted"]].copy()
+        for c in ["Population", "In Need", "Targeted"]:
+            sub[c] = pd.to_numeric(sub[c], errors="coerce")
+        sub = sub.groupby("Country ISO3", as_index=False).agg(
+            population=("Population", "max"),
+            in_need=("In Need", "max"),
+            targeted=("Targeted", "max"),
+        )
+        sub["year"] = y
+        frames.append(sub)
+
+    if not frames:
+        return pd.DataFrame()
+    hno_df = pd.concat(frames, ignore_index=True).rename(columns={"Country ISO3": "iso3"})
+
+    hrp_path = DATA_DIR / "humanitarian-response-plans.csv"
+    hrp = pd.read_csv(hrp_path, header=0, skiprows=[1], low_memory=False)
+    hrp.columns = hrp.columns.str.strip()
+    hrp["revisedRequirements"] = pd.to_numeric(hrp["revisedRequirements"], errors="coerce").fillna(0)
+    hrp["loc_list"] = hrp["locations"].apply(
+        lambda x: [p.strip() for p in str(x).split("|") if p.strip()] if pd.notna(x) else [])
+    hrp["year_list"] = hrp["years"].apply(
+        lambda x: [p.strip() for p in str(x).split("|") if p.strip()] if pd.notna(x) else [])
+    hrp["n_locations"] = hrp["loc_list"].map(len)
+    hrp_single = hrp[hrp["n_locations"] == 1].copy().explode("year_list")
+    hrp_single["year"] = pd.to_numeric(hrp_single["year_list"], errors="coerce")
+    hrp_single = hrp_single[hrp_single["year"].isin(YEARS)].copy()
+    hrp_single["year"] = hrp_single["year"].astype(int)
+    hrp_single["iso3"] = hrp_single["loc_list"].str[0]
+    hrp_agg = hrp_single.groupby(["year", "iso3"], as_index=False).agg(
+        req_sum=("revisedRequirements", "sum"))
+
+    core = hno_df.merge(hrp_agg, on=["year", "iso3"], how="left")
+    core["req_sum"] = core["req_sum"].fillna(0)
+
+    core["need_rate"] = core["in_need"] / core["population"]
+    core["coverage_rate"] = core["targeted"] / core["in_need"]
+    core["usd_per_in_need"] = core["req_sum"] / core["in_need"]
+    for c in ["need_rate", "coverage_rate", "usd_per_in_need"]:
+        core.loc[~np.isfinite(core[c]), c] = np.nan
+    for raw_col, pct_col in {"need_rate": "need_rate_pct",
+                              "usd_per_in_need": "usd_per_in_need_pct"}.items():
+        core[pct_col] = core.groupby("year")[raw_col].rank(pct=True, method="average")
+    core["mismatch"] = core["need_rate_pct"] - core["usd_per_in_need_pct"]
+    return core
 
 
 def enrich_year(scored_df: pd.DataFrame, sev_df: pd.DataFrame,

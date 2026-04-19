@@ -7,7 +7,9 @@ import plotly.graph_objects as go
 from scoring import SCORE_LABEL, fmt_usd
 
 
-def world_map(year_df: pd.DataFrame) -> go.Figure:
+def world_map(year_df: pd.DataFrame,
+              color_col: str = "gap_score",
+              color_label: str = "Gap Score") -> go.Figure:
     year_df = year_df.copy()
     year_df["_hover"] = year_df.apply(
         lambda r: (
@@ -26,11 +28,11 @@ def world_map(year_df: pd.DataFrame) -> go.Figure:
     fig = px.choropleth(
         year_df,
         locations="Country_ISO3",
-        color="gap_score",
+        color=color_col,
         custom_data=["_hover"],
         color_continuous_scale="YlOrRd",
         range_color=[0, 100],
-        labels={"gap_score": SCORE_LABEL},
+        labels={color_col: color_label},
     )
     fig.update_traces(hovertemplate="%{customdata[0]}<extra></extra>")
     fig.update_layout(
@@ -46,27 +48,36 @@ def world_map(year_df: pd.DataFrame) -> go.Figure:
         height=500,
         margin=dict(l=0, r=0, t=10, b=0),
         coloraxis_colorbar=dict(
-            title="Gap Score",
+            title=color_label,
             tickvals=[0, 25, 50, 75, 100],
-            ticktext=["0", "25", "50 (Med)", "75", "100 (High)"],
+            ticktext=["0", "25", "50", "75", "100"],
             thickness=14,
         ),
     )
     return fig
 
 
-def rankings_bar(top_df: pd.DataFrame, top_n: int) -> go.Figure:
-    sorted_df = top_df.sort_values("gap_score")
+def rankings_bar(top_df: pd.DataFrame, top_n: int,
+                 sort_col: str = "gap_score", x_label: str = "Gap Score",
+                 text_series=None) -> go.Figure:
+    sorted_df = top_df.dropna(subset=[sort_col]).sort_values(sort_col)
+    x_max = max(float(sorted_df[sort_col].max()), 1e-9) if not sorted_df.empty else 100
+    if text_series is not None:
+        text_col = text_series.reindex(sorted_df.index)
+    elif "Pct_Funded" in sorted_df.columns:
+        text_col = sorted_df["Pct_Funded"].apply(lambda x: f"{x:.0f}% funded")
+    else:
+        text_col = None
     fig = px.bar(
         sorted_df,
-        x="gap_score",
+        x=sort_col,
         y="label",
         orientation="h",
-        color="gap_score",
+        color=sort_col,
         color_continuous_scale="Reds",
-        range_color=[0, 100],
-        text=sorted_df["Pct_Funded"].apply(lambda x: f"{x:.0f}% funded"),
-        labels={"gap_score": "Gap Score", "label": ""},
+        range_color=[0, x_max],
+        text=text_col,
+        labels={sort_col: x_label, "label": ""},
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(
@@ -74,7 +85,7 @@ def rankings_bar(top_df: pd.DataFrame, top_n: int) -> go.Figure:
         showlegend=False,
         coloraxis_showscale=False,
         margin=dict(l=0, r=90, t=10, b=0),
-        xaxis=dict(range=[0, 115]),
+        xaxis=dict(range=[0, min(x_max * 1.2, 115)]),
         yaxis=dict(tickfont=dict(size=11)),
     )
     return fig
