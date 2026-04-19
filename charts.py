@@ -9,29 +9,22 @@ from scoring import SCORE_LABEL, fmt_usd
 
 def world_map(year_df: pd.DataFrame,
               color_col: str = "gap_score",
-              color_label: str = "Gap Score") -> go.Figure:
+              color_label: str = "Gap Score",
+              color_scale: str = "YlOrRd",
+              range_color: list[float] | None = None) -> go.Figure:
     year_df = year_df.copy()
-    year_df["_hover"] = year_df.apply(
-        lambda r: (
-            f"<b>{r['country_name']}</b><br>"
-            f"{r['CRISIS'] if pd.notna(r.get('CRISIS')) else ''}<br>"
-            f"Type: {r['TYPE OF CRISIS'] if pd.notna(r.get('TYPE OF CRISIS')) else '—'}<br>"
-            f"Severity: {r['INFORM Severity Index']:.1f}"
-            f" ({r['INFORM Severity category'] if pd.notna(r.get('INFORM Severity category')) else ''})<br>"
-            + (f"People in need: {r['In Need']/1e6:.1f}M<br>" if pd.notna(r.get("In Need")) else "")
-            + f"Requirements: {fmt_usd(r['revisedRequirements'])}<br>"
-            f"Coverage: {r['Pct_Funded']:.1f}%<br>"
-            f"<b>Gap Score: {r['gap_score']:.1f}</b>"
-        ),
-        axis=1,
-    )
+    if range_color is None:
+        range_color = [0, 100]
+    if "_hover" not in year_df.columns:
+        year_df["_hover"] = year_df.apply(
+            lambda r: f"<b>{r.get('country_name', r['Country_ISO3'])}</b>", axis=1)
     fig = px.choropleth(
         year_df,
         locations="Country_ISO3",
         color=color_col,
         custom_data=["_hover"],
-        color_continuous_scale="YlOrRd",
-        range_color=[0, 100],
+        color_continuous_scale=color_scale,
+        range_color=range_color,
         labels={color_col: color_label},
     )
     fig.update_traces(hovertemplate="%{customdata[0]}<extra></extra>")
@@ -45,12 +38,10 @@ def world_map(year_df: pd.DataFrame,
             showlakes=False,
             projection_type="natural earth",
         ),
-        height=500,
+        height=650,
         margin=dict(l=0, r=0, t=10, b=0),
         coloraxis_colorbar=dict(
             title=color_label,
-            tickvals=[0, 25, 50, 75, 100],
-            ticktext=["0", "25", "50", "75", "100"],
             thickness=14,
         ),
     )

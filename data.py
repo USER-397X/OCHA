@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-DATA_DIR = Path.home() / "Downloads" / "data-20260418T155116Z-3-001" / "data"
+DATA_DIR = Path(__file__).parent / "data"
 
 
 @st.cache_data
@@ -142,6 +142,76 @@ def load_hno_core() -> pd.DataFrame:
         core[pct_col] = core.groupby("year")[raw_col].rank(pct=True, method="average")
     core["mismatch"] = core["need_rate_pct"] - core["usd_per_in_need_pct"]
     return core
+
+
+@st.cache_data
+def load_overlooked(year: int = 2025) -> pd.DataFrame:
+    """Crises with high INFORM severity but missing from the humanitarian pipeline."""
+    sev = load_severity_df()
+    sev_year = sev[sev["Year"] == year].copy()
+    sev_year["INFORM Severity Index"] = pd.to_numeric(
+        sev_year["INFORM Severity Index"], errors="coerce")
+    sev_year = (sev_year.dropna(subset=["INFORM Severity Index", "ISO3"])
+                .sort_values("INFORM Severity Index", ascending=False)
+                .drop_duplicates(subset=["ISO3"]))
+    severe = sev_year[sev_year["INFORM Severity Index"] >= 3.0].copy()
+
+    # HNO presence
+    hno_pin = load_hno_pin(year)
+    hno_isos = set(hno_pin["Country ISO3"].unique()) if not hno_pin.empty else set()
+
+    # HRP presence — single-country plans with positive requirements
+    hrp = pd.read_csv(DATA_DIR / "humanitarian-response-plans.csv",
+                      header=0, skiprows=[1], low_memory=False)
+    hrp.columns = hrp.columns.str.strip()
+    hrp["revisedRequirements"] = pd.to_numeric(
+        hrp["revisedRequirements"], errors="coerce").fillna(0)
+    hrp["loc_list"] = hrp["locations"].apply(
+        lambda x: [p.strip() for p in str(x).split("|") if p.strip()] if pd.notna(x) else [])
+    hrp["year_list"] = hrp["years"].apply(
+        lambda x: [p.strip() for p in str(x).split("|") if p.strip()] if pd.notna(x) else [])
+    hrp_single = hrp[hrp["loc_list"].map(len) == 1].copy().explode("year_list")
+    hrp_single["_year"] = pd.to_numeric(hrp_single["year_list"], errors="coerce")
+    hrp_isos = set(
+        hrp_single[(hrp_single["_year"] == year) & (hrp_single["revisedRequirements"] > 0)]
+        ["loc_list"].str[0].dropna().unique()
+    )
+
+    severe["has_hno"] = severe["ISO3"].isin(hno_isos)
+    severe["has_hrp"] = severe["ISO3"].isin(hrp_isos)
+
+    def classify(row):
+        if not row["has_hno"] and not row["has_hrp"]:
+            return "Invisible"
+        if not row["has_hno"] and row["has_hrp"]:
+            return "Undocumented"
+        if row["has_hno"] and not row["has_hrp"]:
+            return "Unplanned"
+        return "In pipeline"
+
+    severe["pipeline_stage"] = severe.apply(classify, axis=1)
+    overlooked = severe[severe["pipeline_stage"].isin(["Invisible", "Unplanned"])].copy()
+    return overlooked.rename(columns={"ISO3": "Country_ISO3", "COUNTRY": "country_name"})
+
+
+@st.cache_data
+def load_alignment_map() -> pd.DataFrame:
+    """Country-level alignment scores + per-cluster detail for the map."""
+    from alignment import (load_hno_needs, load_combined_funding,
+                           compute_alignment, country_alignment_score)
+    needs = load_hno_needs()
+    funding = load_combined_funding()
+    alignment = compute_alignment(needs, funding)
+    scores = country_alignment_score(alignment)
+    cluster_detail = (
+        alignment.groupby("country")
+        .apply(lambda g: "<br>".join(
+            f"  {r['cluster']}: {r['alignment_ratio']:.2f}"
+            for _, r in g.sort_values("alignment_ratio").iterrows()))
+        .reset_index(name="_cluster_detail")
+    )
+    result = scores.merge(cluster_detail, on="country")
+    return result.rename(columns={"country": "Country_ISO3"})
 
 
 def enrich_year(scored_df: pd.DataFrame, sev_df: pd.DataFrame,
