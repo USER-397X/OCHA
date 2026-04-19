@@ -4,31 +4,10 @@ ETH Datathon 2026 — OCHA challenge submission by Team Epoch.
 
 A Streamlit dashboard that ranks humanitarian crises by the mismatch between documented need and actual funding, and overlays global media attention to expose systematic neglect.
 
-## What it does
+## What did we do?
+We have a website called teamstroopwafel.streamlit.app where you can see an interactive view of some maps we created and you're able to view our entire notebook! We didn't have time to create an elaborate README anymore, so please check it out! 
 
-**Crisis Dashboard** — ranks ~100 countries by a *gap score* combining funding coverage, INFORM severity, and crisis scale. Interactive world map, bar chart, scatter plot, and multi-year neglect trends.
-
-**Media Attention** — animated choropleth (2021–2026) showing each country's share of English-language global news (GDELT). Click any country to see its full media timeline. Toggle to Funding Gap view to compare against FTS total funding shortfalls.
-
-**Bias Analysis** — systematic analysis of whether UN pooled-fund allocation correlates with crisis severity, geography, or crisis type.
-
-## Gap score formula
-
-```
-gap_score = (1 − coverage) × (severity / 5) × log(requirements) / log(max_req) × 100
-```
-
-Optional structural neglect bonus upweights crises that have been underfunded for multiple consecutive years.
-
-## Data sources
-
-| File | Source | Used for |
-|------|--------|----------|
-| `country_year_severity_funding.csv` | CERF + CBPF allocations vs HRP requirements | Gap score, coverage |
-| `inform_severity_cleaned.csv` | INFORM Severity Index | Crisis severity, type, trend |
-| `fts_requirements_funding_global.csv` | OCHA FTS (all donors) | Funding gap map |
-| `hpc_hno_{year}.csv` | HNO people-in-need | Bubble sizes |
-| `data/media/{ISO3}.csv` | GDELT via BigQuery | Media attention |
+- Pieter, 20min before deadline
 
 ## Setup
 
